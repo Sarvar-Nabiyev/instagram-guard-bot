@@ -24,16 +24,27 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
         except Exception:
             pass
 
-    ydl_opts = {
-        'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', # Force mp4 if possible
-        'merge_output_format': 'mp4', # Ensure final container is mp4
-        'quiet': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-        },
-    }
+    # distinct options for Instagram vs YouTube
+    if "instagram.com" in url:
+        ydl_opts = {
+            'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+            'format': 'best',
+            'quiet': True,
+            'no_warnings': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+            },
+        }
+    else:
+        # For YouTube and others, use default options (or specific ones if needed)
+        # Avoid custom Mobile UA for YouTube as it triggers "Sign in" prompts
+        ydl_opts = {
+            'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+            'quiet': True,
+            'no_warnings': True,
+        }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
