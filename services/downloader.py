@@ -1,0 +1,50 @@
+import os
+import glob
+import logging
+import yt_dlp
+
+logger = logging.getLogger(__name__)
+
+from typing import Optional
+
+def download_instagram_video(url: str, output_dir: str = "downloads") -> Optional[str]:
+    """
+    Downloads video from Instagram URL using yt-dlp.
+    Returns the path to the downloaded file or None if failed.
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Clean up old files in downloads/ (optional, simple cleanup)
+    # For production, might want a better cleanup strategy
+    files = glob.glob(f"{output_dir}/*")
+    for f in files:
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+
+    ydl_opts = {
+        'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+        'format': 'best',  # Download best quality
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_id = info.get('id')
+            ext = info.get('ext')
+            # yt-dlp might change extension (e.g. mkv -> mp4), so we locate the file
+            # or just use the expected filename
+            expected_path = f"{output_dir}/{video_id}.{ext}"
+            
+            # Search for the file if extension differs or unsure
+            found_files = glob.glob(f"{output_dir}/{video_id}.*")
+            if found_files:
+                return found_files[0]
+            return expected_path
+    except Exception as e:
+        logger.error(f"Error downloading video: {e}")
+        return None
