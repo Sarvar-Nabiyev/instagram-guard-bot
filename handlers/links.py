@@ -8,7 +8,7 @@ from services.messages import get_random_warning
 router = Router()
 
 # Regex to find instagram and youtube URLs
-LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com|youtu\.be|youtube\.com)/[^\s]+)"
+LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com)/[^\s]+)"
 
 @router.message(F.text.regexp(LINK_PATTERN))
 async def link_handler(message: Message):
