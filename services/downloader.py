@@ -43,6 +43,10 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
             'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
             'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4',
+            }],
             'quiet': True,
             'no_warnings': True,
         }
