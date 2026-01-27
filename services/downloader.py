@@ -26,7 +26,8 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
 
     ydl_opts = {
         'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
-        'format': 'best',  # Download best quality
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', # Force mp4 if possible
+        'merge_output_format': 'mp4', # Ensure final container is mp4
         'quiet': True,
         'no_warnings': True,
         'http_headers': {
