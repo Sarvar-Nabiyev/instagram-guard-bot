@@ -33,12 +33,10 @@ async def start_webhook():
     await site.start()
     logger.info(f"Web server running on port {port}")
 
-
 async def main():
     token = os.getenv("BOT_TOKEN")
-    if not token or token == "your_bot_token_here":
-        logger.error("BOT_TOKEN is not set in .env file!")
-        print("❌ Iltimos, .env fayliga BOT_TOKEN ni yozing!")
+    if not token:
+        logger.error("BOT_TOKEN environment variable not set.")
         return
 
     bot = Bot(token=token)

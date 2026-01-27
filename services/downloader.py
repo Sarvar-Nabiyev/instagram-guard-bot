@@ -7,9 +7,9 @@ logger = logging.getLogger(__name__)
 
 from typing import Optional
 
-def download_instagram_video(url: str, output_dir: str = "downloads") -> Optional[str]:
+def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     """
-    Downloads video from Instagram URL using yt-dlp.
+    Downloads video from URL (Instagram, YouTube, etc.) using yt-dlp.
     Returns the path to the downloaded file or None if failed.
     """
     if not os.path.exists(output_dir):
