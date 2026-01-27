@@ -38,9 +38,10 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     else:
         # For YouTube and others, use default options (or specific ones if needed)
         # Avoid custom Mobile UA for YouTube as it triggers "Sign in" prompts
+        # Limit to 1080p to save space and bandwidth
         ydl_opts = {
             'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[ext=mp4]/best',
             'merge_output_format': 'mp4',
             'quiet': True,
             'no_warnings': True,
