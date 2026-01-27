@@ -29,6 +29,9 @@ def download_instagram_video(url: str, output_dir: str = "downloads") -> Optiona
         'format': 'best',  # Download best quality
         'quiet': True,
         'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+        },
     }
 
     try:
