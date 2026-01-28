@@ -6,6 +6,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from handlers import commands, links, groups
 from services.stats import init_db
+from services.pyrogram_uploader import get_pyrogram_client, stop_pyrogram_client
 
 # Load environment variables
 load_dotenv()
@@ -54,13 +55,31 @@ async def main():
 
     # Start web server for cloud port binding
     await start_webhook()
+    
+    # Initialize Pyrogram client for large file uploads
+    api_id = os.getenv("API_ID")
+    api_hash = os.getenv("API_HASH")
+    if api_id and api_hash:
+        pyrogram_client = await get_pyrogram_client()
+        if pyrogram_client:
+            logger.info("Pyrogram client ready for large file uploads (up to 2GB)")
+        else:
+            logger.warning("Pyrogram client failed to start, large files won't work")
+    else:
+        logger.warning("API_ID/API_HASH not set, large file upload disabled")
 
     # Start polling
     logger.info("Bot ishga tushdi...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # Graceful shutdown
+        await stop_pyrogram_client()
+        logger.info("Cleanup completed")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot to'xtatildi")
+
