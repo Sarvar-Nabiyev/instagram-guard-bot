@@ -6,6 +6,8 @@ Uses MTProto protocol instead of Bot API
 import os
 import asyncio
 import logging
+import time
+from typing import Callable, Optional
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 
@@ -14,6 +16,14 @@ logger = logging.getLogger(__name__)
 # Singleton client instance
 _client: Client = None
 _client_lock = asyncio.Lock()
+
+
+def create_progress_bar(percent: float, length: int = 10) -> str:
+    """Create a visual progress bar"""
+    filled = int(length * percent / 100)
+    empty = length - filled
+    bar = "█" * filled + "░" * empty
+    return bar
 
 
 async def get_pyrogram_client() -> Client:
@@ -51,7 +61,12 @@ async def get_pyrogram_client() -> Client:
         return _client
 
 
-async def upload_large_video(chat_id: int, video_path: str, caption: str = None) -> bool:
+async def upload_large_video(
+    chat_id: int, 
+    video_path: str, 
+    caption: str = None,
+    progress_callback: Optional[Callable] = None
+) -> bool:
     """
     Upload video using Pyrogram (supports up to 2GB)
     
@@ -59,6 +74,8 @@ async def upload_large_video(chat_id: int, video_path: str, caption: str = None)
         chat_id: Telegram chat ID to send video to
         video_path: Path to the video file
         caption: Optional caption for the video
+        progress_callback: Optional async callback for progress updates
+            Will be called with (current_bytes, total_bytes, percent, speed_mbps)
         
     Returns:
         True if successful, False otherwise
@@ -68,6 +85,44 @@ async def upload_large_video(chat_id: int, video_path: str, caption: str = None)
     if client is None:
         logger.error("Pyrogram client not available")
         return False
+    
+    # Track progress state
+    progress_state = {
+        'last_update': 0,
+        'start_time': time.time(),
+        'last_bytes': 0
+    }
+    
+    async def progress_handler(current: int, total: int):
+        """Internal progress handler"""
+        now = time.time()
+        
+        # Update every 2 seconds to avoid rate limits
+        if now - progress_state['last_update'] < 2:
+            return
+        
+        progress_state['last_update'] = now
+        
+        # Calculate progress
+        percent = (current / total) * 100 if total > 0 else 0
+        
+        # Calculate speed
+        elapsed = now - progress_state['start_time']
+        speed_mbps = (current / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+        
+        # Estimate remaining time
+        if speed_mbps > 0:
+            remaining_mb = (total - current) / (1024 * 1024)
+            eta_seconds = remaining_mb / speed_mbps
+        else:
+            eta_seconds = 0
+        
+        # Call callback if provided
+        if progress_callback:
+            try:
+                await progress_callback(current, total, percent, speed_mbps, eta_seconds)
+            except Exception as e:
+                logger.warning(f"Progress callback error: {e}")
     
     try:
         # Get file size
@@ -82,7 +137,8 @@ async def upload_large_video(chat_id: int, video_path: str, caption: str = None)
             video=video_path,
             caption=caption,
             parse_mode="markdown",
-            supports_streaming=True
+            supports_streaming=True,
+            progress=progress_handler
         )
         
         logger.info(f"Successfully uploaded {file_size_mb:.1f} MB video")
@@ -98,7 +154,8 @@ async def upload_large_video(chat_id: int, video_path: str, caption: str = None)
                 video=video_path,
                 caption=caption,
                 parse_mode="markdown",
-                supports_streaming=True
+                supports_streaming=True,
+                progress=progress_handler
             )
             return True
         except Exception as retry_error:

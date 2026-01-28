@@ -6,7 +6,7 @@ from aiogram.types import Message, FSInputFile
 from services.downloader import download_video
 from services.messages import get_random_warning
 from services.stats import track_request
-from services.pyrogram_uploader import upload_large_video
+from services.pyrogram_uploader import upload_large_video, create_progress_bar
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -21,6 +21,20 @@ LARGE_FILE_THRESHOLD = 45 * 1024 * 1024  # 45 MB in bytes
 def get_file_size_mb(path: str) -> float:
     """Get file size in MB"""
     return os.path.getsize(path) / (1024 * 1024)
+
+
+def format_time(seconds: float) -> str:
+    """Format seconds to human readable time"""
+    if seconds < 60:
+        return f"{int(seconds)} soniya"
+    elif seconds < 3600:
+        minutes = int(seconds / 60)
+        secs = int(seconds % 60)
+        return f"{minutes} daqiqa {secs} soniya"
+    else:
+        hours = int(seconds / 3600)
+        minutes = int((seconds % 3600) / 60)
+        return f"{hours} soat {minutes} daqiqa"
 
 
 @router.message(F.text.regexp(LINK_PATTERN))
@@ -58,9 +72,40 @@ async def link_handler(message: Message):
         if file_size > LARGE_FILE_THRESHOLD:
             # Use Pyrogram for large files
             logger.info(f"Large file detected ({file_size_mb:.1f} MB), using Pyrogram")
-            await status_msg.edit_text(f"📤 Katta video yuklanmoqda ({file_size_mb:.1f} MB)... Biroz kuting.")
             
-            success = await upload_large_video(chat_id, video_path, caption)
+            # Create progress callback
+            async def update_progress(current: int, total: int, percent: float, speed: float, eta: float):
+                """Update status message with progress"""
+                try:
+                    current_mb = current / (1024 * 1024)
+                    total_mb = total / (1024 * 1024)
+                    progress_bar = create_progress_bar(percent)
+                    eta_str = format_time(eta) if eta > 0 else "hisoblanmoqda..."
+                    
+                    progress_text = (
+                        f"📤 **Video yuklanmoqda...**\n\n"
+                        f"{progress_bar} **{percent:.0f}%**\n\n"
+                        f"📊 {current_mb:.1f} / {total_mb:.1f} MB\n"
+                        f"⚡ Tezlik: {speed:.1f} MB/s\n"
+                        f"⏱ Qoldi: ~{eta_str}"
+                    )
+                    
+                    await status_msg.edit_text(progress_text, parse_mode="Markdown")
+                except Exception as e:
+                    # Ignore edit errors (too frequent, message not modified, etc.)
+                    pass
+            
+            # Initial message
+            await status_msg.edit_text(
+                f"📤 **Video yuklanmoqda...**\n\n"
+                f"░░░░░░░░░░ **0%**\n\n"
+                f"📊 0 / {file_size_mb:.1f} MB\n"
+                f"⚡ Tezlik: hisoblanmoqda...\n"
+                f"⏱ Qoldi: hisoblanmoqda...",
+                parse_mode="Markdown"
+            )
+            
+            success = await upload_large_video(chat_id, video_path, caption, update_progress)
             
             if success:
                 # Track successful request
