@@ -4,10 +4,11 @@ from aiogram import Router, F
 from aiogram.types import Message, FSInputFile
 from services.downloader import download_video
 from services.messages import get_random_warning
+from services.stats import track_request
 
 router = Router()
 
-# Regex to find instagram and youtube URLs
+# Regex to find instagram URLs
 LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com)/[^\s]+)"
 
 @router.message(F.text.regexp(LINK_PATTERN))
@@ -18,6 +19,7 @@ async def link_handler(message: Message):
         return
 
     url = match.group(0)
+    user_id = message.from_user.id
     
     # Notify user we are processing
     status_msg = await message.reply("⏳ Video yuklanmoqda... Iltimos kuting.")
@@ -27,9 +29,14 @@ async def link_handler(message: Message):
         video_path = download_video(url)
         
         if not video_path:
+            # Track failed request
+            track_request(user_id, success=False, request_type='video_download')
             await status_msg.edit_text("❌ Videoni yuklab bo'lmadi. Link yopiq profildan yoki noto'g'ri bo'lishi mumkin.")
             return
 
+        # Track successful request
+        track_request(user_id, success=True, request_type='video_download')
+        
         # Prepare caption with warning
         caption = get_random_warning()
         
@@ -40,12 +47,13 @@ async def link_handler(message: Message):
         # Delete the status message
         await status_msg.delete()
         
-        # Optional: cleanup file immediately or rely on next run cleanup
+        # Cleanup file
         try:
             os.remove(video_path)
         except:
             pass
             
     except Exception as e:
+        # Track failed request
+        track_request(user_id, success=False, request_type='video_download')
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
-        # In production logging is better than sending raw error to user

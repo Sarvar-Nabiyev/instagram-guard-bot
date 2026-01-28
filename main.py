@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from handlers import commands, links
+from services.stats import init_db
 
 # Load environment variables
 load_dotenv()
@@ -12,6 +13,10 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Initialize statistics database
+init_db()
+logger.info("Statistics database initialized")
 
 async def start_webhook():
     """
