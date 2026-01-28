@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from aiohttp import web
 from aiogram import Bot, Dispatcher
-from handlers import commands, links
+from handlers import commands, links, groups
 from services.stats import init_db
 
 # Load environment variables
@@ -50,6 +50,7 @@ async def main():
     # Register routers
     dp.include_router(commands.router)
     dp.include_router(links.router)
+    dp.include_router(groups.router)
 
     # Start web server for cloud port binding
     await start_webhook()

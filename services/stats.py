@@ -63,6 +63,15 @@ def init_db():
             )
         ''')
         
+        # Groups jadval - bot qo'shilgan guruhlar (hashed)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS groups (
+                group_hash TEXT PRIMARY KEY,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1
+            )
+        ''')
+        
         conn.commit()
         conn.close()
 
@@ -73,6 +82,48 @@ def _hash_user_id(user_id: int) -> str:
     salt = os.getenv('STATS_SALT', 'instagram_guard_bot_2024')
     data = f"{salt}:{user_id}".encode()
     return hashlib.sha256(data).hexdigest()[:16]
+
+
+def _hash_group_id(group_id: int) -> str:
+    """Group ID ni hash qilish - shaxsiy ma'lumot saqlanmaydi"""
+    salt = os.getenv('STATS_SALT', 'instagram_guard_bot_2024')
+    data = f"{salt}:group:{group_id}".encode()
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def track_group(group_id: int, joined: bool = True):
+    """
+    Guruhga qo'shilish/chiqishni saqlash
+    - group_id hash qilinadi (anonim)
+    - joined=True: bot guruhga qo'shildi
+    - joined=False: bot guruhdan chiqarildi
+    """
+    group_hash = _hash_group_id(group_id)
+    
+    with _db_lock:
+        conn = _get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            if joined:
+                # Guruhga qo'shildi
+                cursor.execute('''
+                    INSERT INTO groups (group_hash, is_active) 
+                    VALUES (?, 1)
+                    ON CONFLICT(group_hash) DO UPDATE SET
+                        is_active = 1,
+                        joined_at = CURRENT_TIMESTAMP
+                ''', (group_hash,))
+            else:
+                # Guruhdan chiqarildi
+                cursor.execute(
+                    'UPDATE groups SET is_active = 0 WHERE group_hash = ?',
+                    (group_hash,)
+                )
+            
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def track_request(user_id: int, success: bool, request_type: str = 'video_download'):
@@ -199,6 +250,13 @@ def get_stats() -> dict:
             ''', (week_ago,))
             peak_hours = [row['hour'] for row in cursor.fetchall()]
             
+            # Guruhlar soni
+            cursor.execute('SELECT COUNT(*) as count FROM groups WHERE is_active = 1')
+            active_groups = cursor.fetchone()['count']
+            
+            cursor.execute('SELECT COUNT(*) as count FROM groups')
+            total_groups = cursor.fetchone()['count']
+            
             return {
                 'total_users': total_users,
                 'total_requests': total_requests,
@@ -217,7 +275,11 @@ def get_stats() -> dict:
                     'requests': month_requests,
                     'users': month_users
                 },
-                'peak_hours': peak_hours
+                'peak_hours': peak_hours,
+                'groups': {
+                    'active': active_groups,
+                    'total': total_groups
+                }
             }
         finally:
             conn.close()
@@ -227,7 +289,14 @@ def format_stats_message(stats: dict) -> str:
     """Statistikani chiroyli format qilish"""
     peak_hours_str = ', '.join([f"{h}:00" for h in stats['peak_hours']]) if stats['peak_hours'] else "Ma'lumot yo'q"
     
+    # Groups info
+    groups_info = stats.get('groups', {'active': 0, 'total': 0})
+    
     return f"""📊 **Bot Statistikasi**
+
+🏠 **Guruhlar:**
+├ Faol: **{groups_info['active']}** ta
+└ Jami (tarixiy): **{groups_info['total']}** ta
 
 👥 **Foydalanuvchilar:**
 ├ Jami: **{stats['total_users']}** ta unique user
