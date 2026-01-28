@@ -2,7 +2,7 @@ import os
 import re
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message
 from services.downloader import download_video
 from services.messages import get_random_warning
 from services.stats import track_request
@@ -13,9 +13,6 @@ logger = logging.getLogger(__name__)
 
 # Regex to find instagram URLs
 LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com)/[^\s]+)"
-
-# File size threshold for using Pyrogram (45 MB to be safe)
-LARGE_FILE_THRESHOLD = 45 * 1024 * 1024  # 45 MB in bytes
 
 
 def get_file_size_mb(path: str) -> float:
@@ -49,10 +46,10 @@ async def link_handler(message: Message):
     chat_id = message.chat.id
     
     # Notify user we are processing
-    status_msg = await message.reply("⏳ Video yuklanmoqda... Iltimos kuting.")
+    status_msg = await message.reply("⏳ Instagram'dan video yuklanmoqda...")
     
     try:
-        # Download video
+        # Download video from Instagram
         video_path = download_video(url)
         
         if not video_path:
@@ -62,68 +59,59 @@ async def link_handler(message: Message):
             return
 
         # Get file size
-        file_size = os.path.getsize(video_path)
         file_size_mb = get_file_size_mb(video_path)
         
         # Prepare caption with warning
         caption = get_random_warning()
         
-        # Check if file is too large for Bot API
-        if file_size > LARGE_FILE_THRESHOLD:
-            # Use Pyrogram for large files
-            logger.info(f"Large file detected ({file_size_mb:.1f} MB), using Pyrogram")
-            
-            # Create progress callback
-            async def update_progress(current: int, total: int, percent: float, speed: float, eta: float):
-                """Update status message with progress"""
-                try:
-                    current_mb = current / (1024 * 1024)
-                    total_mb = total / (1024 * 1024)
-                    progress_bar = create_progress_bar(percent)
-                    eta_str = format_time(eta) if eta > 0 else "hisoblanmoqda..."
-                    
-                    progress_text = (
-                        f"📤 **Video yuklanmoqda...**\n\n"
-                        f"{progress_bar} **{percent:.0f}%**\n\n"
-                        f"📊 {current_mb:.1f} / {total_mb:.1f} MB\n"
-                        f"⚡ Tezlik: {speed:.1f} MB/s\n"
-                        f"⏱ Qoldi: ~{eta_str}"
-                    )
-                    
-                    await status_msg.edit_text(progress_text, parse_mode="Markdown")
-                except Exception as e:
-                    # Ignore edit errors (too frequent, message not modified, etc.)
-                    pass
-            
-            # Initial message
-            await status_msg.edit_text(
-                f"📤 **Video yuklanmoqda...**\n\n"
-                f"░░░░░░░░░░ **0%**\n\n"
-                f"📊 0 / {file_size_mb:.1f} MB\n"
-                f"⚡ Tezlik: hisoblanmoqda...\n"
-                f"⏱ Qoldi: hisoblanmoqda...",
-                parse_mode="Markdown"
-            )
-            
-            success = await upload_large_video(chat_id, video_path, caption, update_progress)
-            
-            if success:
-                # Track successful request
-                track_request(user_id, success=True, request_type='video_download')
-                await status_msg.delete()
-            else:
-                # Pyrogram failed, track as failed
-                track_request(user_id, success=False, request_type='video_download')
-                await status_msg.edit_text(
-                    "❌ Video yuklashda xatolik yuz berdi. Keyinroq qayta urinib ko'ring."
+        # Log upload start
+        logger.info(f"Uploading {file_size_mb:.1f} MB video via Pyrogram")
+        
+        # Create progress callback for ALL videos
+        async def update_progress(current: int, total: int, percent: float, speed: float, eta: float):
+            """Update status message with progress"""
+            try:
+                current_mb = current / (1024 * 1024)
+                total_mb = total / (1024 * 1024)
+                progress_bar = create_progress_bar(percent)
+                eta_str = format_time(eta) if eta > 0 else "hisoblanmoqda..."
+                
+                progress_text = (
+                    f"📤 **Telegram'ga yuklanmoqda...**\n\n"
+                    f"{progress_bar} **{percent:.0f}%**\n\n"
+                    f"📊 {current_mb:.1f} / {total_mb:.1f} MB\n"
+                    f"⚡ Tezlik: {speed:.1f} MB/s\n"
+                    f"⏱ Qoldi: ~{eta_str}"
                 )
-        else:
-            # Use regular Bot API for small files (faster)
+                
+                await status_msg.edit_text(progress_text, parse_mode="Markdown")
+            except Exception as e:
+                # Ignore edit errors (too frequent, message not modified, etc.)
+                pass
+        
+        # Initial upload message
+        await status_msg.edit_text(
+            f"📤 **Telegram'ga yuklanmoqda...**\n\n"
+            f"░░░░░░░░░░ **0%**\n\n"
+            f"📊 0 / {file_size_mb:.1f} MB\n"
+            f"⚡ Tezlik: hisoblanmoqda...\n"
+            f"⏱ Qoldi: hisoblanmoqda...",
+            parse_mode="Markdown"
+        )
+        
+        # Use Pyrogram for ALL videos to show progress
+        success = await upload_large_video(chat_id, video_path, caption, update_progress)
+        
+        if success:
+            # Track successful request
             track_request(user_id, success=True, request_type='video_download')
-            
-            video_input = FSInputFile(video_path)
-            await message.reply_video(video=video_input, caption=caption, parse_mode="Markdown")
             await status_msg.delete()
+        else:
+            # Pyrogram failed, track as failed
+            track_request(user_id, success=False, request_type='video_download')
+            await status_msg.edit_text(
+                "❌ Video yuklashda xatolik yuz berdi. Keyinroq qayta urinib ko'ring."
+            )
         
         # Cleanup file
         try:
@@ -138,12 +126,12 @@ async def link_handler(message: Message):
         # Track failed request
         track_request(user_id, success=False, request_type='video_download')
         
-        # Check for file size limit error (fallback if Pyrogram wasn't used)
+        # Check for file size limit error
         if "Request Entity Too Large" in error_msg or "too large" in error_msg.lower():
             await status_msg.edit_text(
                 "⚠️ **Video hajmi juda katta!**\n\n"
-                "Videoni qayta yuklashda xatolik yuz berdi.\n\n"
-                "💡 **Yechim:** Keyinroq qayta urinib ko'ring.",
+                "2 GB dan katta videolarni yuklab bo'lmaydi.\n\n"
+                "💡 **Yechim:** Qisqaroq video tanlang.",
                 parse_mode="Markdown"
             )
         else:
