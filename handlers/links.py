@@ -54,6 +54,17 @@ async def link_handler(message: Message):
             pass
             
     except Exception as e:
+        error_msg = str(e)
         # Track failed request
         track_request(user_id, success=False, request_type='video_download')
-        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
+        
+        # Check for file size limit error
+        if "Request Entity Too Large" in error_msg or "too large" in error_msg.lower():
+            await status_msg.edit_text(
+                "⚠️ **Video hajmi juda katta!**\n\n"
+                "Telegram 50 MB dan katta videolarni yuborishni qo'llab-quvvatlamaydi.\n\n"
+                "💡 **Yechim:** Videoni Instagram'dan o'zingiz yuklab oling yoki qisqaroq video tanlang.",
+                parse_mode="Markdown"
+            )
+        else:
+            await status_msg.edit_text(f"❌ Xatolik yuz berdi: {error_msg}")
