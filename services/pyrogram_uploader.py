@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Callable, Optional
 from pyrogram import Client
+from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait
 
 logger = logging.getLogger(__name__)
@@ -136,7 +137,7 @@ async def upload_large_video(
             chat_id=chat_id,
             video=video_path,
             caption=caption,
-            parse_mode="markdown",
+            parse_mode=ParseMode.MARKDOWN,
             supports_streaming=True,
             progress=progress_handler
         )
@@ -153,7 +154,7 @@ async def upload_large_video(
                 chat_id=chat_id,
                 video=video_path,
                 caption=caption,
-                parse_mode="markdown",
+                parse_mode=ParseMode.MARKDOWN,
                 supports_streaming=True,
                 progress=progress_handler
             )
