@@ -71,17 +71,15 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     Downloads video from URL (Instagram, YouTube, etc.) using yt-dlp.
     Returns the path to the downloaded file or None if failed.
     """
+    # Ensure output_dir is absolute to prevent CWD issues with Pyrogram
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.abspath(output_dir)
+
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Clean up old files in downloads/ (optional, simple cleanup)
-    # For production, might want a better cleanup strategy
-    files = glob.glob(f"{output_dir}/*")
-    for f in files:
-        try:
-            os.remove(f)
-        except Exception:
-            pass
+    # REMOVED: Aggressive cleanup that deletes concurrent downloads
+    # Each handler is responsible for deleting its own file after upload
 
     # Create cookies file for Instagram authentication
     cookies_file = _create_cookies_file()
