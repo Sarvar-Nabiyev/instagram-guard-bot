@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 # Singleton client instance
 _client: Client = None
 _client_lock = asyncio.Lock()
+# Lock to ensure sequential uploads (Pyrogram client limitation workaround)
+_upload_lock = asyncio.Lock()
 
 
 def create_progress_bar(percent: float, length: int = 10) -> str:
@@ -86,7 +88,7 @@ async def upload_large_video(
     if client is None:
         logger.error("Pyrogram client not available")
         return False
-    
+
     # Track progress state
     progress_state = {
         'last_update': 0,
@@ -124,47 +126,49 @@ async def upload_large_video(
                 await progress_callback(current, total, percent, speed_mbps, eta_seconds)
             except Exception as e:
                 logger.warning(f"Progress callback error: {e}")
-    
-    try:
-        # Get file size
-        file_size = os.path.getsize(video_path)
-        file_size_mb = file_size / (1024 * 1024)
+
+    # Use lock to process one upload at a time
+    async with _upload_lock:
+        max_retries = 3
         
-        logger.info(f"Uploading {file_size_mb:.1f} MB video via Pyrogram")
+        for attempt in range(max_retries):
+            try:
+                # Get file size
+                file_size = os.path.getsize(video_path)
+                file_size_mb = file_size / (1024 * 1024)
+                
+                logger.info(f"Uploading {file_size_mb:.1f} MB video via Pyrogram (Attempt {attempt+1}/{max_retries})")
+                
+                # Reset progress state for retry
+                progress_state['start_time'] = time.time()
+                progress_state['last_update'] = 0
+                
+                # Upload with progress
+                await client.send_video(
+                    chat_id=chat_id,
+                    video=video_path,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    supports_streaming=True,
+                    progress=progress_handler
+                )
+                
+                logger.info(f"Successfully uploaded {file_size_mb:.1f} MB video")
+                return True
+                
+            except FloodWait as e:
+                wait_time = e.value + 2
+                logger.warning(f"FloodWait: sleeping for {wait_time} seconds before retry")
+                await asyncio.sleep(wait_time)
+                # Continue to next attempt
+                
+            except Exception as e:
+                logger.error(f"Pyrogram upload failed (Attempt {attempt+1}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)  # Wait briefly before retry
+                else:
+                    return False
         
-        # Upload with progress
-        await client.send_video(
-            chat_id=chat_id,
-            video=video_path,
-            caption=caption,
-            parse_mode=ParseMode.HTML,
-            supports_streaming=True,
-            progress=progress_handler
-        )
-        
-        logger.info(f"Successfully uploaded {file_size_mb:.1f} MB video")
-        return True
-        
-    except FloodWait as e:
-        logger.warning(f"FloodWait: sleeping for {e.value} seconds")
-        await asyncio.sleep(e.value)
-        # Retry once after flood wait
-        try:
-            await client.send_video(
-                chat_id=chat_id,
-                video=video_path,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                supports_streaming=True,
-                progress=progress_handler
-            )
-            return True
-        except Exception as retry_error:
-            logger.error(f"Retry failed: {retry_error}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Pyrogram upload failed: {e}")
         return False
 
 
