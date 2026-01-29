@@ -55,21 +55,23 @@ async def link_handler(message: Message):
     try:
         # Retry mechanism for download
         video_path = None
-        max_retries = 2
-        
-        # Wait for slot in download queue
         async with _download_sem:
+            max_retries = 3
+            backoff = 2  # Initial wait time in seconds
+            
             for attempt in range(max_retries):
                 # Download video from Instagram
+                # The user agent is already rotated inside download_video
                 video_path = download_video(url)
                 
                 if video_path:
                     break
                 
-                # If failed, wait and retry
+                # If failed, wait with improved backoff and retry
                 if attempt < max_retries - 1:
-                    logger.warning(f"Download attempt {attempt+1} failed. Retrying...")
-                    await asyncio.sleep(2)  # Wait 2 seconds before retry
+                    logger.warning(f"Download attempt {attempt+1} failed. Retrying in {backoff} seconds...")
+                    await asyncio.sleep(backoff)
+                    backoff *= 2  # Exponential backoff: 2s -> 4s -> 8s
         
         if not video_path:
             # Track failed request
