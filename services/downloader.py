@@ -112,11 +112,18 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
             
             expected_path = f"{output_dir}/{video_id}.{ext}"
             
-            # Simple check
+            # Strict check: Validate file actually exists
             found_files = glob.glob(f"{output_dir}/{video_id}.*")
-            if found_files:
+            if found_files and os.path.exists(found_files[0]):
                 return found_files[0]
-            return expected_path
+            
+            # Fallback check for expected path
+            if os.path.exists(expected_path):
+                return expected_path
+                
+            # If we reached here, no file was found
+            logger.warning(f"Download finished but no file found for {video_id}")
+            return None
     except Exception as e:
         logger.error(f"Error downloading video: {e}")
         return None

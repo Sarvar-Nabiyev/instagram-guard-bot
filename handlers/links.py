@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 # Regex to find instagram URLs
 LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com)/[^\s]+)"
 
+# Limit concurrent processing to 2 to avoid IP bans and overload
+_download_sem = asyncio.Semaphore(2)
+
 
 def get_file_size_mb(path: str) -> float:
     """Get file size in MB"""
@@ -54,16 +57,19 @@ async def link_handler(message: Message):
         video_path = None
         max_retries = 2
         
-        for attempt in range(max_retries):
-            # Download video from Instagram
-            video_path = download_video(url)
-            
-            if video_path:
-                break
-            
-            # If failed, wait and retry
-            logger.warning(f"Download attempt {attempt+1} failed. Retrying...")
-            await asyncio.sleep(2)  # Wait 2 seconds before retry
+        # Wait for slot in download queue
+        async with _download_sem:
+            for attempt in range(max_retries):
+                # Download video from Instagram
+                video_path = download_video(url)
+                
+                if video_path:
+                    break
+                
+                # If failed, wait and retry
+                if attempt < max_retries - 1:
+                    logger.warning(f"Download attempt {attempt+1} failed. Retrying...")
+                    await asyncio.sleep(2)  # Wait 2 seconds before retry
         
         if not video_path:
             # Track failed request
