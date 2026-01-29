@@ -11,16 +11,25 @@ from typing import Optional
 
 def _create_cookies_file() -> Optional[str]:
     """
-    Create a Netscape format cookies file from environment variables.
-    Returns path to the cookies file or None if cookies not configured.
+    Get path to cookies file.
+    1. Checks if 'cookies.txt' exists in current directory.
+    2. If not, tries to create from environment variables.
+    Returns path to the cookies file or None.
     """
+    # 1. Check local cookies.txt
+    local_cookies = "cookies.txt"
+    if os.path.exists(local_cookies):
+        logger.info(f"Using local file: {local_cookies}")
+        return local_cookies
+
+    # 2. Fallback to Env Variables
     session_id = os.getenv('INSTAGRAM_SESSION_ID')
     csrf_token = os.getenv('INSTAGRAM_CSRF_TOKEN', '')
     ds_user_id = os.getenv('INSTAGRAM_DS_USER_ID', '')
     mid = os.getenv('INSTAGRAM_MID', '')
     
     if not session_id:
-        logger.warning("INSTAGRAM_SESSION_ID not set, cookies won't be used")
+        logger.warning("No cookies.txt found and INSTAGRAM_SESSION_ID not set")
         return None
     
     # Create Netscape format cookies file
@@ -42,7 +51,7 @@ def _create_cookies_file() -> Optional[str]:
     cookies_file.write(cookies_content)
     cookies_file.close()
     
-    logger.info(f"Created cookies file at {cookies_file.name}")
+    logger.info(f"Created temp cookies file at {cookies_file.name}")
     return cookies_file.name
 
 
