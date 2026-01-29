@@ -55,6 +55,17 @@ def _create_cookies_file() -> Optional[str]:
     return cookies_file.name
 
 
+import random
+
+USER_AGENTS = [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Mobile Safari/537.36'
+]
+
 def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     """
     Downloads video from URL (Instagram, YouTube, etc.) using yt-dlp.
@@ -75,15 +86,17 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     # Create cookies file for Instagram authentication
     cookies_file = _create_cookies_file()
 
-    # Always use Instagram-specific mobile User-Agent logic
-    # (Since we are now restricted to Instagram only per user request)
+    # Use random User-Agent for each request to avoid rate limits
+    user_agent = random.choice(USER_AGENTS)
+    logger.info(f"Using User-Agent: {user_agent}")
+
     ydl_opts = {
         'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
         'format': 'best',
         'quiet': True,
         'no_warnings': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+            'User-Agent': user_agent,
         },
     }
     

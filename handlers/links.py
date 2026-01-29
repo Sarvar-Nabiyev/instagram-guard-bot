@@ -1,6 +1,7 @@
 import os
 import re
 import logging
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message
 from services.downloader import download_video
@@ -49,8 +50,20 @@ async def link_handler(message: Message):
     status_msg = await message.reply("⏳ Instagram'dan video yuklanmoqda...")
     
     try:
-        # Download video from Instagram
-        video_path = download_video(url)
+        # Retry mechanism for download
+        video_path = None
+        max_retries = 2
+        
+        for attempt in range(max_retries):
+            # Download video from Instagram
+            video_path = download_video(url)
+            
+            if video_path:
+                break
+            
+            # If failed, wait and retry
+            logger.warning(f"Download attempt {attempt+1} failed. Retrying...")
+            await asyncio.sleep(2)  # Wait 2 seconds before retry
         
         if not video_path:
             # Track failed request
@@ -61,7 +74,7 @@ async def link_handler(message: Message):
         # Get file size
         file_size_mb = get_file_size_mb(video_path)
         
-        # Prepare caption with warning
+        # Prepare caption with warning (HTML formatted)
         caption = get_random_warning()
         
         # Log upload start
@@ -77,26 +90,26 @@ async def link_handler(message: Message):
                 eta_str = format_time(eta) if eta > 0 else "hisoblanmoqda..."
                 
                 progress_text = (
-                    f"📤 **Telegram'ga yuklanmoqda...**\n\n"
-                    f"{progress_bar} **{percent:.0f}%**\n\n"
+                    f"📤 <b>Telegram'ga yuklanmoqda...</b>\n\n"
+                    f"{progress_bar} <b>{percent:.0f}%</b>\n\n"
                     f"📊 {current_mb:.1f} / {total_mb:.1f} MB\n"
                     f"⚡ Tezlik: {speed:.1f} MB/s\n"
                     f"⏱ Qoldi: ~{eta_str}"
                 )
                 
-                await status_msg.edit_text(progress_text, parse_mode="Markdown")
+                await status_msg.edit_text(progress_text, parse_mode="HTML")
             except Exception as e:
                 # Ignore edit errors (too frequent, message not modified, etc.)
                 pass
         
         # Initial upload message
         await status_msg.edit_text(
-            f"📤 **Telegram'ga yuklanmoqda...**\n\n"
-            f"░░░░░░░░░░ **0%**\n\n"
+            f"📤 <b>Telegram'ga yuklanmoqda...</b>\n\n"
+            f"░░░░░░░░░░ <b>0%</b>\n\n"
             f"📊 0 / {file_size_mb:.1f} MB\n"
             f"⚡ Tezlik: hisoblanmoqda...\n"
             f"⏱ Qoldi: hisoblanmoqda...",
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
         
         # Use Pyrogram for ALL videos to show progress
@@ -129,10 +142,10 @@ async def link_handler(message: Message):
         # Check for file size limit error
         if "Request Entity Too Large" in error_msg or "too large" in error_msg.lower():
             await status_msg.edit_text(
-                "⚠️ **Video hajmi juda katta!**\n\n"
+                "⚠️ <b>Video hajmi juda katta!</b>\n\n"
                 "2 GB dan katta videolarni yuklab bo'lmaydi.\n\n"
-                "💡 **Yechim:** Qisqaroq video tanlang.",
-                parse_mode="Markdown"
+                "💡 <b>Yechim:</b> Qisqaroq video tanlang.",
+                parse_mode="HTML"
             )
         else:
             await status_msg.edit_text(f"❌ Xatolik yuz berdi: {error_msg}")

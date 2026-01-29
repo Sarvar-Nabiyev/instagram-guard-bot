@@ -137,7 +137,7 @@ async def upload_large_video(
             chat_id=chat_id,
             video=video_path,
             caption=caption,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.HTML,
             supports_streaming=True,
             progress=progress_handler
         )
@@ -154,7 +154,7 @@ async def upload_large_video(
                 chat_id=chat_id,
                 video=video_path,
                 caption=caption,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.HTML,
                 supports_streaming=True,
                 progress=progress_handler
             )
