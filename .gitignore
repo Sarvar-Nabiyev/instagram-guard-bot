@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.exp
+deploy.sh
 downloads/
 .env
 .DS_Store
