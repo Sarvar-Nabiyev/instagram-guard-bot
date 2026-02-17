@@ -2,5 +2,5 @@ aiogram>=3.0
 yt-dlp>=2024.12.01
 python-dotenv
 aiohttp
-pyrogram>=2.0
+pyrofork
 tgcrypto

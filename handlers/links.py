@@ -3,20 +3,25 @@ import re
 import logging
 import asyncio
 from aiogram import Router, F
-from aiogram.types import Message
-from services.downloader import download_video
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from services.downloader import download_video, download_audio
 from services.messages import get_random_warning
 from services.stats import track_request
-from services.pyrogram_uploader import upload_large_video, create_progress_bar
+from services.pyrogram_uploader import upload_large_video, upload_large_audio, create_progress_bar
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 # Regex to find instagram URLs
 LINK_PATTERN = r"(https?://(?:www\.)?(?:instagram\.com)/[^\s]+)"
-
+# Regex to find YouTube URLs (handles m.youtube.com, etc)
 # Limit concurrent processing to 2 to avoid IP bans and overload
 _download_sem = asyncio.Semaphore(2)
+
+# Report keyboard for error messages
+REPORT_KEYBOARD = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="✍️ Xatolikni xabar berish", callback_data="report_error")]
+])
 
 
 def get_file_size_mb(path: str) -> float:
@@ -38,122 +43,213 @@ def format_time(seconds: float) -> str:
         return f"{hours} soat {minutes} daqiqa"
 
 
+
 @router.message(F.text.regexp(LINK_PATTERN))
 async def link_handler(message: Message):
-    # Extract the first link found
-    match = re.search(LINK_PATTERN, message.text)
-    if not match:
+    # Block specific user
+    if message.from_user.id == 7065956674:
         return
 
+    # Send format selection buttons
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📹 Video (480p)", callback_data="dl_video"),
+            InlineKeyboardButton(text="🎵 Audio (MP3)", callback_data="dl_audio")
+        ]
+    ])
+    
+    await message.reply(
+        "Formatni tanlang:",
+        reply_markup=keyboard
+    )
+
+
+@router.callback_query(F.data.in_({"dl_video", "dl_audio"}))
+async def callback_download(callback: CallbackQuery):
+    # Verify original message exists
+    if not callback.message.reply_to_message or not callback.message.reply_to_message.text:
+        await callback.message.edit_text("❌ Original xabar o'chirilgan yoki topilmadi.", reply_markup=REPORT_KEYBOARD)
+        return
+
+    # Extract URL from original message
+    match = re.search(LINK_PATTERN, callback.message.reply_to_message.text)
+    if not match:
+        await callback.message.edit_text("❌ Havola topilmadi.", reply_markup=REPORT_KEYBOARD)
+        return
+        
     url = match.group(0)
-    user_id = message.from_user.id
-    chat_id = message.chat.id
+    user_id = callback.from_user.id
+    chat_id = callback.message.chat.id
     
-    # Notify user we are processing
-    status_msg = await message.reply("⏳ Instagram'dan video yuklanmoqda...")
+    await callback.message.edit_text("⏳ Yuklanmoqda...")
     
+    if callback.data == "dl_video":
+        await process_video(callback.message, url, user_id, chat_id)
+    else:
+        await process_audio(callback.message, url, user_id, chat_id)
+
+
+async def process_video(status_msg: Message, url: str, user_id: int, chat_id: int):
     try:
-        # Retry mechanism for download
         video_path = None
+        video_caption = None
+        
         async with _download_sem:
-            max_retries = 3
-            backoff = 2  # Initial wait time in seconds
+            max_retries = 5
+            backoff = 5
             
             for attempt in range(max_retries):
-                # Download video from Instagram
-                # The user agent is already rotated inside download_video
-                video_path = download_video(url)
+                result = download_video(url)
                 
-                if video_path:
+                if result:
+                    video_path = result['path']
+                    video_caption = result['caption']
                     break
                 
-                # If failed, wait with improved backoff and retry
                 if attempt < max_retries - 1:
-                    logger.warning(f"Download attempt {attempt+1} failed. Retrying in {backoff} seconds...")
                     await asyncio.sleep(backoff)
-                    backoff *= 2  # Exponential backoff: 2s -> 4s -> 8s
+                    backoff *= 2
+        
+        # Custom Caption Logic
+        footer = "\n<a href='https://t.me/vid_instagrambot'>@vid_instagrambot</a>"
+        if video_caption:
+            # Escape and wrap in expandable blockquote (full text)
+            import html
+            safe_caption = html.escape(video_caption)
+            video_caption = f"<blockquote expandable>{safe_caption}</blockquote>{footer}"
+        else:
+            video_caption = footer
         
         if not video_path:
-            # Track failed request
             track_request(user_id, success=False, request_type='video_download')
-            await status_msg.edit_text("❌ Videoni yuklab bo'lmadi. Link yopiq profildan yoki noto'g'ri bo'lishi mumkin.")
+            await status_msg.edit_text("❌ Videoni yuklab bo'lmadi.", reply_markup=REPORT_KEYBOARD)
             return
 
-        # Get file size
         file_size_mb = get_file_size_mb(video_path)
+        logger.info(f"Uploading {file_size_mb:.1f} MB video")
         
-        # Prepare caption with warning (HTML formatted)
-        caption = get_random_warning()
-        
-        # Log upload start
-        logger.info(f"Uploading {file_size_mb:.1f} MB video via Pyrogram")
-        
-        # Create progress callback for ALL videos
-        async def update_progress(current: int, total: int, percent: float, speed: float, eta: float):
-            """Update status message with progress"""
+        async def update_progress(current, total, percent, speed, eta):
             try:
                 current_mb = current / (1024 * 1024)
                 total_mb = total / (1024 * 1024)
                 progress_bar = create_progress_bar(percent)
                 eta_str = format_time(eta) if eta > 0 else "hisoblanmoqda..."
                 
-                progress_text = (
-                    f"📤 <b>Telegram'ga yuklanmoqda...</b>\n\n"
+                text = (
+                    f"📹 <b>Video yuklanmoqda...</b>\n\n"
                     f"{progress_bar} <b>{percent:.0f}%</b>\n\n"
                     f"📊 {current_mb:.1f} / {total_mb:.1f} MB\n"
-                    f"⚡ Tezlik: {speed:.1f} MB/s\n"
-                    f"⏱ Qoldi: ~{eta_str}"
+                    f"⚡ {speed:.1f} MB/s\n"
+                    f"⏱ ~{eta_str}"
                 )
-                
-                await status_msg.edit_text(progress_text, parse_mode="HTML")
-            except Exception as e:
-                # Ignore edit errors (too frequent, message not modified, etc.)
+                await status_msg.edit_text(text, parse_mode="HTML")
+            except:
                 pass
         
-        # Initial upload message
-        await status_msg.edit_text(
-            f"📤 <b>Telegram'ga yuklanmoqda...</b>\n\n"
-            f"░░░░░░░░░░ <b>0%</b>\n\n"
-            f"📊 0 / {file_size_mb:.1f} MB\n"
-            f"⚡ Tezlik: hisoblanmoqda...\n"
-            f"⏱ Qoldi: hisoblanmoqda...",
-            parse_mode="HTML"
-        )
-        
-        # Use Pyrogram for ALL videos to show progress
-        success = await upload_large_video(chat_id, video_path, caption, update_progress)
+        success = await upload_large_video(chat_id, video_path, video_caption, update_progress)
         
         if success:
-            # Track successful request
             track_request(user_id, success=True, request_type='video_download')
             await status_msg.delete()
+            
+            try:
+                warning = get_random_warning()
+                await status_msg.bot.send_message(chat_id, warning, parse_mode="HTML")
+            except:
+                pass
         else:
-            # Pyrogram failed, track as failed
             track_request(user_id, success=False, request_type='video_download')
-            await status_msg.edit_text(
-                "❌ Video yuklashda xatolik yuz berdi. Keyinroq qayta urinib ko'ring."
-            )
+            await status_msg.edit_text("❌ Video yuklashda xatolik yuz berdi.", reply_markup=REPORT_KEYBOARD)
         
-        # Cleanup file
         try:
             os.remove(video_path)
         except:
             pass
             
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Error in link_handler: {error_msg}")
-        
-        # Track failed request
+        logger.error(f"Error in process_video: {e}")
         track_request(user_id, success=False, request_type='video_download')
+        await status_msg.edit_text("❌ Xatolik yuz berdi.", reply_markup=REPORT_KEYBOARD)
+
+
+async def process_audio(status_msg: Message, url: str, user_id: int, chat_id: int):
+    try:
+        audio_path = None
+        caption = None
+        performer = None
+        title = None
         
-        # Check for file size limit error
-        if "Request Entity Too Large" in error_msg or "too large" in error_msg.lower():
-            await status_msg.edit_text(
-                "⚠️ <b>Video hajmi juda katta!</b>\n\n"
-                "2 GB dan katta videolarni yuklab bo'lmaydi.\n\n"
-                "💡 <b>Yechim:</b> Qisqaroq video tanlang.",
-                parse_mode="HTML"
-            )
+        async with _download_sem:
+            max_retries = 5
+            backoff = 5
+            
+            for attempt in range(max_retries):
+                result = download_audio(url)
+                
+                if result:
+                    audio_path = result['path']
+                    caption = result['caption']
+                    performer = result['performer']
+                    title = result['title']
+                    break
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
+        
+        if not audio_path:
+            track_request(user_id, success=False, request_type='audio_download')
+            await status_msg.edit_text("❌ Audioni yuklab bo'lmadi.", reply_markup=REPORT_KEYBOARD)
+            return
+
+        file_size_mb = get_file_size_mb(audio_path)
+        logger.info(f"Uploading {file_size_mb:.1f} MB audio")
+        
+        # Custom Caption Logic for Audio (same as Video)
+        footer = "\n<a href='https://t.me/vid_instagrambot'>@vid_instagrambot</a>"
+        if caption:
+            import html
+            safe_caption = html.escape(caption)
+            caption = f"<blockquote expandable>{safe_caption}</blockquote>{footer}"
         else:
-            await status_msg.edit_text(f"❌ Xatolik yuz berdi: {error_msg}")
+            caption = footer
+        
+        async def update_progress(current, total, percent, speed, eta):
+            try:
+                progress_bar = create_progress_bar(percent)
+                text = (
+                    f"🎵 <b>Audio yuklanmoqda...</b>\n\n"
+                    f"{progress_bar} <b>{percent:.0f}%</b>"
+                )
+                await status_msg.edit_text(text, parse_mode="HTML")
+            except:
+                pass
+        
+        success = await upload_large_audio(
+            chat_id, audio_path, caption, performer, title, update_progress
+        )
+        
+        if success:
+            track_request(user_id, success=True, request_type='audio_download')
+            await status_msg.delete()
+            
+            # Send warning for audio too? Logic says yes because using social media.
+            # But maybe less intrusive. Let's send it.
+            try:
+                warning = get_random_warning()
+                await status_msg.bot.send_message(chat_id, warning, parse_mode="HTML")
+            except:
+                pass
+        else:
+            track_request(user_id, success=False, request_type='audio_download')
+            await status_msg.edit_text("❌ Audio yuklashda xatolik yuz berdi.", reply_markup=REPORT_KEYBOARD)
+        
+        try:
+            os.remove(audio_path)
+        except:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Error in process_audio: {e}")
+        track_request(user_id, success=False, request_type='audio_download')
+        await status_msg.edit_text("❌ Xatolik yuz berdi.", reply_markup=REPORT_KEYBOARD)

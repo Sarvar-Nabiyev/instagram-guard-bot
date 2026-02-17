@@ -33,10 +33,11 @@ def init_db():
         conn = _get_connection()
         cursor = conn.cursor()
         
-        # Unique users jadval (faqat hashed ID lar)
+        # Unique users jadval
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_hash TEXT PRIMARY KEY,
+                user_id INTEGER,  -- Real User ID for broadcasting
                 first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -52,7 +53,7 @@ def init_db():
             )
         ''')
         
-        # Daily summary jadval (tez statistika uchun)
+        # Daily summary jadval
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS daily_stats (
                 date TEXT PRIMARY KEY,
@@ -63,15 +64,27 @@ def init_db():
             )
         ''')
         
-        # Groups jadval - bot qo'shilgan guruhlar (hashed)
+        # Groups jadval
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS groups (
                 group_hash TEXT PRIMARY KEY,
+                chat_id INTEGER,  -- Real Group Chat ID for broadcasting
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active BOOLEAN DEFAULT 1
             )
         ''')
         
+        # Migrations (Add columns if not exist for old DBs)
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN user_id INTEGER")
+        except:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE groups ADD COLUMN chat_id INTEGER")
+        except:
+            pass
+            
         conn.commit()
         conn.close()
 
@@ -94,9 +107,6 @@ def _hash_group_id(group_id: int) -> str:
 def track_group(group_id: int, joined: bool = True):
     """
     Guruhga qo'shilish/chiqishni saqlash
-    - group_id hash qilinadi (anonim)
-    - joined=True: bot guruhga qo'shildi
-    - joined=False: bot guruhdan chiqarildi
     """
     group_hash = _hash_group_id(group_id)
     
@@ -108,12 +118,13 @@ def track_group(group_id: int, joined: bool = True):
             if joined:
                 # Guruhga qo'shildi
                 cursor.execute('''
-                    INSERT INTO groups (group_hash, is_active) 
-                    VALUES (?, 1)
+                    INSERT INTO groups (group_hash, chat_id, is_active) 
+                    VALUES (?, ?, 1)
                     ON CONFLICT(group_hash) DO UPDATE SET
+                        chat_id = ?,
                         is_active = 1,
                         joined_at = CURRENT_TIMESTAMP
-                ''', (group_hash,))
+                ''', (group_hash, group_id, group_id))
             else:
                 # Guruhdan chiqarildi
                 cursor.execute(
@@ -129,9 +140,6 @@ def track_group(group_id: int, joined: bool = True):
 def track_request(user_id: int, success: bool, request_type: str = 'video_download'):
     """
     Requestni saqlash
-    - user_id hash qilinadi (anonim)
-    - success/fail holati
-    - request turi
     """
     user_hash = _hash_user_id(user_id)
     today = datetime.now().strftime('%Y-%m-%d')
@@ -141,11 +149,11 @@ def track_request(user_id: int, success: bool, request_type: str = 'video_downlo
         cursor = conn.cursor()
         
         try:
-            # Yangi user bo'lsa qo'shish
-            cursor.execute(
-                'INSERT OR IGNORE INTO users (user_hash) VALUES (?)',
-                (user_hash,)
-            )
+            # Yangi user bo'lsa qo'shish (va ID ni yangilash)
+            cursor.execute('''
+                INSERT INTO users (user_hash, user_id) VALUES (?, ?)
+                ON CONFLICT(user_hash) DO UPDATE SET user_id = ?
+            ''', (user_hash, user_id, user_id))
             
             # Request yozish
             cursor.execute(
@@ -318,3 +326,27 @@ def format_stats_message(stats: dict) -> str:
 ⏰ **Eng faol soatlar:** {peak_hours_str}
 
 🔒 _Barcha ma'lumotlar anonim. Shaxsiy ma'lumotlar saqlanmaydi._"""
+
+
+def get_all_users() -> list[int]:
+    """Broadcast uchun barcha user_id larni olish"""
+    with _db_lock:
+        conn = _get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT user_id FROM users WHERE user_id IS NOT NULL')
+            return [row['user_id'] for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+
+def get_all_groups() -> list[int]:
+    """Broadcast uchun barcha active group chat_id larni olish"""
+    with _db_lock:
+        conn = _get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('SELECT chat_id FROM groups WHERE is_active = 1 AND chat_id IS NOT NULL')
+            return [row['chat_id'] for row in cursor.fetchall()]
+        finally:
+            conn.close()

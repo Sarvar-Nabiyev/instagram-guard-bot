@@ -3,6 +3,7 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from services.stats import get_stats, format_stats_message
+from handlers.admin import get_admin_keyboard
 
 router = Router()
 
@@ -11,8 +12,18 @@ ADMIN_USER_ID = int(os.getenv('ADMIN_USER_ID', '0'))
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    
+    # Agar admin bo'lsa, panelni ko'rsatish
+    if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
+        await message.answer(
+            "👋 Assalomu alaykum Admin!\nQuyidagi menyudan tanlang:",
+            reply_markup=get_admin_keyboard()
+        )
+        return
+
     await message.answer(
-        "Assalomu alaykum! Men Instagram Guardian botman.\n\n"
+        "Assalomu alaykum! Men Instagram video downloader botman.\n\n"
         "Meni guruhlarga qo'shing. Men guruhdagi Instagram linklarini topib, "
         "videolarni yuklab beraman va Instagramning zararlari haqida eslatib turaman."
     )

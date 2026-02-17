@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from aiohttp import web
 from aiogram import Bot, Dispatcher
-from handlers import commands, links, groups
+from handlers import commands, links, groups, admin, report
 from services.stats import init_db
 from services.pyrogram_uploader import get_pyrogram_client, stop_pyrogram_client
 
@@ -49,6 +49,8 @@ async def main():
     dp = Dispatcher()
 
     # Register routers
+    dp.include_router(admin.router)
+    dp.include_router(report.router)
     dp.include_router(commands.router)
     dp.include_router(links.router)
     dp.include_router(groups.router)

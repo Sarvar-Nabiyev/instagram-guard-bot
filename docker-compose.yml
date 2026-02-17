@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: instagram_bot
+    restart: always
+    volumes:
+      - ./downloads:/app/downloads
+      - ./cookies.txt:/app/cookies.txt
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Tashkent
+      - ADMIN_USER_ID=617286560
+      - API_ID=657255
+      - API_HASH=28c8c4a9aeed01748f5b408b56152a63
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -169,6 +169,103 @@ async def upload_large_video(
                 else:
                     return False
         
+                return False
+        
+        return False
+
+
+async def upload_large_audio(
+    chat_id: int, 
+    audio_path: str,
+    caption: str = None,
+    performer: str = None,
+    title: str = None,
+    progress_callback: Optional[Callable] = None
+) -> bool:
+    """
+    Upload audio using Pyrogram
+    """
+    client = await get_pyrogram_client()
+    
+    if client is None:
+        logger.error("Pyrogram client not available")
+        return False
+
+    # Track progress state
+    progress_state = {
+        'last_update': 0,
+        'start_time': time.time(),
+        'last_bytes': 0
+    }
+    
+    async def progress_handler(current: int, total: int):
+        """Internal progress handler"""
+        now = time.time()
+        
+        # Update every 2 seconds to avoid rate limits
+        if now - progress_state['last_update'] < 2:
+            return
+        
+        progress_state['last_update'] = now
+        
+        # Calculate progress
+        percent = (current / total) * 100 if total > 0 else 0
+        
+        # Calculate speed
+        elapsed = now - progress_state['start_time']
+        speed_mbps = (current / (1024 * 1024)) / elapsed if elapsed > 0 else 0
+        
+        # Estimate remaining time
+        if speed_mbps > 0:
+            remaining_mb = (total - current) / (1024 * 1024)
+            eta_seconds = remaining_mb / speed_mbps
+        else:
+            eta_seconds = 0
+        
+        # Call callback if provided
+        if progress_callback:
+            try:
+                await progress_callback(current, total, percent, speed_mbps, eta_seconds)
+            except Exception as e:
+                logger.warning(f"Progress callback error: {e}")
+
+    # Use lock to process one upload at a time
+    async with _upload_lock:
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Uploading audio via Pyrogram (Attempt {attempt+1}/{max_retries})")
+                
+                # Reset progress state
+                progress_state['start_time'] = time.time()
+                progress_state['last_update'] = 0
+                
+                await client.send_audio(
+                    chat_id=chat_id,
+                    audio=audio_path,
+                    caption=caption,
+                    title=title,
+                    performer=performer,
+                    parse_mode=ParseMode.HTML,
+                    progress=progress_handler
+                )
+                
+                logger.info(f"Successfully uploaded audio")
+                return True
+                
+            except FloodWait as e:
+                wait_time = e.value + 2
+                logger.warning(f"FloodWait: sleeping for {wait_time} seconds before retry")
+                await asyncio.sleep(wait_time)
+                
+            except Exception as e:
+                logger.error(f"Pyrogram audio upload failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+                else:
+                    return False
+        
         return False
 
 

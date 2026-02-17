@@ -2,11 +2,32 @@ import os
 import glob
 import logging
 import tempfile
+import random
 import yt_dlp
 
 logger = logging.getLogger(__name__)
 
-from typing import Optional
+from typing import Optional, List
+
+
+def _get_proxy() -> Optional[str]:
+    """
+    Get proxy URL from environment variable.
+    Supports multiple proxies (comma-separated) with random rotation.
+    Format: http://user:pass@host:port or socks5://host:port
+    """
+    proxy_url = os.getenv('PROXY_URL', '')
+    if not proxy_url:
+        return None
+    
+    # Support multiple proxies separated by comma
+    proxies = [p.strip() for p in proxy_url.split(',') if p.strip()]
+    if not proxies:
+        return None
+    
+    selected = random.choice(proxies)
+    logger.info(f"Using proxy: {selected[:20]}...")
+    return selected
 
 
 def _create_cookies_file() -> Optional[str]:
@@ -66,10 +87,10 @@ USER_AGENTS = [
     'Mozilla/5.0 (Linux; Android 10; Pixel 4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Mobile Safari/537.36'
 ]
 
-def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
+def download_video(url: str, output_dir: str = "downloads") -> Optional[dict]:
     """
     Downloads video from URL (Instagram, YouTube, etc.) using yt-dlp.
-    Returns the path to the downloaded file or None if failed.
+    Returns dict {'path': str, 'caption': str} or None if failed.
     """
     # Ensure output_dir is absolute to prevent CWD issues with Pyrogram
     if not os.path.isabs(output_dir):
@@ -90,7 +111,7 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
 
     ydl_opts = {
         'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
-        'format': 'best',
+        'format': 'best[width<=640]/best[width<=720]/best',  # Filter by width for vertical videos
         'quiet': True,
         'no_warnings': True,
         'http_headers': {
@@ -102,6 +123,11 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
     if cookies_file:
         ydl_opts['cookiefile'] = cookies_file
 
+    # Add proxy if configured
+    proxy = _get_proxy()
+    if proxy:
+        ydl_opts['proxy'] = proxy
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -110,18 +136,95 @@ def download_video(url: str, output_dir: str = "downloads") -> Optional[str]:
             
             expected_path = f"{output_dir}/{video_id}.{ext}"
             
-            # Strict check: Validate file actually exists
+            # Use glob to find the downloaded file (sometimes extension differs)
             found_files = glob.glob(f"{output_dir}/{video_id}.*")
-            if found_files and os.path.exists(found_files[0]):
-                return found_files[0]
             
             # Fallback check for expected path
-            if os.path.exists(expected_path):
-                return expected_path
+            video_path = None
+            if found_files and os.path.exists(found_files[0]):
+                video_path = found_files[0]
+            elif os.path.exists(expected_path):
+                video_path = expected_path
+
+            if video_path:
+                # Get caption (title or description)
+                caption = info.get('description') or info.get('title') or ""
+                # Truncate caption to 1024 chars (Telegram limit)
+                if len(caption) > 1024:
+                    caption = caption[:1021] + "..."
+                
+                return {
+                    'path': video_path,
+                    'caption': caption
+                }
                 
             # If we reached here, no file was found
             logger.warning(f"Download finished but no file found for {video_id}")
             return None
     except Exception as e:
         logger.error(f"Error downloading video: {e}")
+        return None
+
+
+def download_audio(url: str, output_dir: str = "downloads") -> Optional[dict]:
+    """
+    Downloads audio from URL as MP3.
+    Returns dict {'path': str, 'caption': str} or None if failed.
+    """
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.abspath(output_dir)
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    cookies_file = _create_cookies_file()
+    user_agent = random.choice(USER_AGENTS)
+
+    ydl_opts = {
+        'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+        'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'no_warnings': True,
+        'http_headers': {
+            'User-Agent': user_agent,
+        },
+    }
+    
+    if cookies_file:
+        ydl_opts['cookiefile'] = cookies_file
+
+    # Add proxy if configured
+    proxy = _get_proxy()
+    if proxy:
+        ydl_opts['proxy'] = proxy
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_id = info.get('id')
+            
+            # Expected path is .mp3 after conversion
+            expected_path = f"{output_dir}/{video_id}.mp3"
+            
+            if os.path.exists(expected_path):
+                caption = info.get('description') or info.get('title') or ""
+                if len(caption) > 1024:
+                    caption = caption[:1021] + "..."
+                
+                return {
+                    'path': expected_path,
+                    'caption': caption,
+                    'performer': info.get('artist') or info.get('uploader') or "Instagram",
+                    'title': info.get('track') or info.get('title') or "Audio"
+                }
+            
+            logger.warning(f"Audio download finished but no file found for {video_id}")
+            return None
+    except Exception as e:
+        logger.error(f"Error downloading audio: {e}")
         return None
