@@ -9,3 +9,9 @@ downloads/
 .venv
 env/
 venv/
+
+# Authentication material must remain on the server only
+cookies.txt
+*.session
+*.session-journal
+.secrets.env
